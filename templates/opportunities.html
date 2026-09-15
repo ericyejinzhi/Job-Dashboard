@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Opportunities · Job Dash{% endblock %}
+{% block content %}
+<div class="row spread" style="margin-bottom:12px">
+  <h1 style="margin:0">Opportunities <span class="muted small">{{ rows|length }}</span></h1>
+  <div class="row">
+    <a class="btn" href="{{ url_for('opportunity_import') }}">Import CSV</a>
+    <a class="btn" href="{{ url_for('opportunity_export') }}">Export CSV</a>
+    <a class="btn btn-primary" href="{{ url_for('opportunity_new') }}">+ Add opportunity</a>
+  </div>
+</div>
+
+<div class="card filters">
+  <form method="get">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search company, role, notes">
+    <select name="status">
+      <option value="">All statuses</option>
+      {% for s in OPP_STATUSES %}<option value="{{ s }}" {{ 'selected' if s == status }}>{{ s }}</option>{% endfor %}
+    </select>
+    <select name="sort">
+      <option value="date_found" {{ 'selected' if sort == 'date_found' }}>Newest found</option>
+      <option value="date_found_asc" {{ 'selected' if sort == 'date_found_asc' }}>Oldest found</option>
+      <option value="date_applied" {{ 'selected' if sort == 'date_applied' }}>Recently applied</option>
+      <option value="company" {{ 'selected' if sort == 'company' }}>Company A–Z</option>
+      <option value="status" {{ 'selected' if sort == 'status' }}>Status</option>
+      <option value="updated" {{ 'selected' if sort == 'updated' }}>Recently updated</option>
+    </select>
+    <button>Apply</button>
+    {% if q or status or sort != 'date_found' %}<a class="btn" href="{{ url_for('opportunities') }}">Clear</a>{% endif %}
+  </form>
+</div>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Company</th><th>Role</th><th>Status</th><th>Found</th><th>Applied</th><th>Contacts</th><th>Notes</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for o in rows %}
+    <tr>
+      <td class="nowrap"><strong>{{ o.company }}</strong>
+        {% if o.source_link %}<br><a class="small" href="{{ o.source_link }}" target="_blank" rel="noopener">posting ↗</a>{% endif %}</td>
+      <td>{{ o.role }}</td>
+      <td class="nowrap">
+        <form class="inline" method="post" action="{{ url_for('opportunity_status', oid=o.id) }}">
+          <select class="inline s-{{ o.status|replace(' ', '-') }}" name="status" onchange="this.form.submit()">
+            {% for s in OPP_STATUSES %}<option value="{{ s }}" {{ 'selected' if s == o.status }}>{{ s }}</option>{% endfor %}
+          </select>
+        </form>
+      </td>
+      <td class="nowrap">{{ o.date_found or '' }}{% if o.date_found %}<br><span class="small muted">{{ days_since(o.date_found) }}d ago</span>{% endif %}</td>
+      <td class="nowrap">{{ o.date_applied or '' }}{% if o.date_applied %}<br><span class="small muted">{{ days_since(o.date_applied) }}d ago</span>{% endif %}</td>
+      <td class="small">
+        {% for c in o.contacts %}<a href="{{ url_for('contact_edit', cid=c.id) }}">{{ c.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+        {% if o.contacts %}<br>{% endif %}<a class="muted" href="{{ url_for('contact_new', company=o.company, opportunity_id=o.id) }}">+ add</a>
+      </td>
+      <td class="notes small">{{ o.notes }}</td>
+      <td class="nowrap">
+        <a class="btn btn-sm" href="{{ url_for('opportunity_edit', oid=o.id) }}">Edit</a>
+        <form class="inline" method="post" action="{{ url_for('opportunity_delete', oid=o.id) }}" onsubmit="return confirm('Delete {{ o.company|e }}?')">
+          <button class="btn-sm btn-danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="empty">No opportunities match. <a href="{{ url_for('opportunity_new') }}">Add one</a> or <a href="{{ url_for('opportunity_import') }}">import a CSV</a>.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

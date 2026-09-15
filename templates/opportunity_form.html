@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% set editing = opp.id is defined and opp.id %}
+{% block title %}{{ 'Edit' if editing else 'New' }} opportunity · Job Dash{% endblock %}
+{% block content %}
+<h1>{{ 'Edit' if editing else 'New' }} opportunity</h1>
+<form method="post" class="card">
+  <div class="form-grid">
+    <div><label>Company *</label><input name="company" value="{{ opp.company or '' }}" required autofocus></div>
+    <div><label>Role *</label><input name="role" value="{{ opp.role or '' }}" required placeholder="Software Engineering Intern"></div>
+    <div class="full"><label>Source link</label><input name="source_link" value="{{ opp.source_link or '' }}" placeholder="https://..."></div>
+    <div><label>Status</label>
+      <select name="status">{% for s in OPP_STATUSES %}<option value="{{ s }}" {{ 'selected' if s == opp.status }}>{{ s }}</option>{% endfor %}</select>
+    </div>
+    <div><label>Date found</label><input type="date" name="date_found" value="{{ opp.date_found or today() }}"></div>
+    <div><label>Date applied <span class="muted">(auto-set when status changes off "not applied")</span></label>
+      <input type="date" name="date_applied" value="{{ opp.date_applied or '' }}"></div>
+    <div class="full"><label>Notes</label><textarea name="notes">{{ opp.notes or '' }}</textarea></div>
+    <div class="full">
+      <label>Linked contacts</label>
+      {% if contacts %}
+      <div class="checks">
+        {% for c in contacts %}
+        <label><input type="checkbox" name="contact_ids" value="{{ c.id }}" {{ 'checked' if c.id in linked }}> {{ c.name }} <span class="muted">({{ c.company }})</span></label>
+        {% endfor %}
+      </div>
+      {% else %}<div class="empty">No contacts yet.</div>{% endif %}
+    </div>
+  </div>
+  <div class="row" style="margin-top:16px">
+    <button class="btn-primary">{{ 'Save' if editing else 'Add opportunity' }}</button>
+    <a class="btn" href="{{ url_for('opportunities') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

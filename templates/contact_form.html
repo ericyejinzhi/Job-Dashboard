@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% set editing = contact.id is defined and contact.id %}
+{% block title %}{{ 'Edit' if editing else 'New' }} contact · Job Dash{% endblock %}
+{% block content %}
+<h1>{{ 'Edit' if editing else 'New' }} contact</h1>
+<form method="post" class="card">
+  <div class="form-grid">
+    <div><label>Name *</label><input name="name" value="{{ contact.name or '' }}" required autofocus></div>
+    <div><label>Company</label><input name="company" value="{{ contact.company or '' }}"></div>
+    <div><label>Their role</label><input name="role" value="{{ contact.role or '' }}" placeholder="Recruiter, Eng Manager, Alum SWE..."></div>
+    <div><label>How I found them</label>
+      <select name="source">{% for s in CONTACT_SOURCES %}<option value="{{ s }}" {{ 'selected' if s == contact.source }}>{{ s }}</option>{% endfor %}</select>
+    </div>
+    <div><label>LinkedIn URL</label><input name="linkedin" value="{{ contact.linkedin or '' }}" placeholder="https://linkedin.com/in/..."></div>
+    <div><label>Email</label><input name="email" value="{{ contact.email or '' }}"></div>
+    <div><label>Outreach status</label>
+      <select name="status">{% for s in CONTACT_STATUSES %}<option value="{{ s }}" {{ 'selected' if s == contact.status }}>{{ s }}</option>{% endfor %}</select>
+    </div>
+    <div><label>Last contact date <span class="muted">(auto-set to today if blank and status is not "not contacted")</span></label>
+      <input type="date" name="last_contact" value="{{ contact.last_contact or '' }}"></div>
+    <div class="full"><label>Notes</label><textarea name="notes" placeholder="Hook, what you asked, what they said...">{{ contact.notes or '' }}</textarea></div>
+    <div class="full">
+      <label>Relevant opportunities</label>
+      {% if opps %}
+      <div class="checks">
+        {% for o in opps %}
+        <label><input type="checkbox" name="opportunity_ids" value="{{ o.id }}" {{ 'checked' if o.id in linked }}> {{ o.company }} <span class="muted">· {{ o.role }}</span></label>
+        {% endfor %}
+      </div>
+      {% else %}<div class="empty">No opportunities yet.</div>{% endif %}
+    </div>
+  </div>
+  <div class="row" style="margin-top:16px">
+    <button class="btn-primary">{{ 'Save' if editing else 'Add contact' }}</button>
+    <a class="btn" href="{{ url_for('contacts') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

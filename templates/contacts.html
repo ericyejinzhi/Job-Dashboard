@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Contacts · Job Dash{% endblock %}
+{% block content %}
+<div class="row spread" style="margin-bottom:12px">
+  <h1 style="margin:0">Contacts <span class="muted small">{{ rows|length }}</span></h1>
+  <a class="btn btn-primary" href="{{ url_for('contact_new') }}">+ Add contact</a>
+</div>
+
+<div class="card filters">
+  <form method="get">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search name, company, role, notes">
+    <select name="status">
+      <option value="">All statuses</option>
+      {% for s in CONTACT_STATUSES %}<option value="{{ s }}" {{ 'selected' if s == status }}>{{ s }}</option>{% endfor %}
+    </select>
+    <button>Apply</button>
+    {% if q or status %}<a class="btn" href="{{ url_for('contacts') }}">Clear</a>{% endif %}
+  </form>
+</div>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Name</th><th>Company / role</th><th>How found</th><th>Status</th><th>Last contact</th><th>Opportunities</th><th>Notes</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for c in rows %}
+    <tr>
+      <td class="nowrap"><strong>{{ c.name }}</strong><br>
+        <span class="small">
+          {% if c.linkedin %}<a href="{{ c.linkedin }}" target="_blank" rel="noopener">LinkedIn ↗</a>{% endif %}
+          {% if c.email %}{% if c.linkedin %} · {% endif %}<a href="mailto:{{ c.email }}">{{ c.email }}</a>{% endif %}
+        </span>
+      </td>
+      <td>{{ c.company }}{% if c.role %}<br><span class="small muted">{{ c.role }}</span>{% endif %}</td>
+      <td class="small">{{ c.source }}</td>
+      <td class="nowrap">
+        <form class="inline" method="post" action="{{ url_for('contact_status', cid=c.id) }}">
+          <select class="inline s-{{ c.status|replace(' ', '-') }}" name="status" onchange="this.form.submit()">
+            {% for s in CONTACT_STATUSES %}<option value="{{ s }}" {{ 'selected' if s == c.status }}>{{ s }}</option>{% endfor %}
+          </select>
+        </form>
+      </td>
+      <td class="nowrap">{{ c.last_contact or '' }}{% if c.last_contact %}<br><span class="small muted">{{ days_since(c.last_contact) }}d ago</span>{% endif %}
+        {% if c.status == 'messaged' and c.last_contact and days_since(c.last_contact) >= 7 %}<br><span class="pill s-interviewing">stale</span>{% endif %}
+      </td>
+      <td class="small">
+        {% for o in c.opportunities %}<a href="{{ url_for('opportunity_edit', oid=o.id) }}">{{ o.company }}: {{ o.role }}</a>{% if not loop.last %}<br>{% endif %}{% endfor %}
+        {% if not c.opportunities %}<a class="muted" href="{{ url_for('opportunity_new', company=c.company, contact_id=c.id) }}">+ add</a>{% endif %}
+      </td>
+      <td class="notes small">{{ c.notes }}</td>
+      <td class="nowrap">
+        <form class="inline" method="post" action="{{ url_for('contact_touch', cid=c.id) }}">
+          <button class="btn-sm" title="Set last contact to today">Touch</button>
+        </form>
+        <a class="btn btn-sm" href="{{ url_for('contact_edit', cid=c.id) }}">Edit</a>
+        <form class="inline" method="post" action="{{ url_for('contact_delete', cid=c.id) }}" onsubmit="return confirm('Delete {{ c.name|e }}?')">
+          <button class="btn-sm btn-danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="empty">No contacts match. <a href="{{ url_for('contact_new') }}">Add one</a>.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

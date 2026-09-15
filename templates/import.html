@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Import CSV · Job Dash{% endblock %}
+{% block content %}
+<h1>Import opportunities from CSV</h1>
+<div class="card">
+  <p>Upload a CSV with a header row. Recognised columns (case-insensitive, spaces become underscores):</p>
+  <p><code>{{ columns|join(', ') }}</code></p>
+  <ul class="small muted">
+    <li><strong>company</strong> and <strong>role</strong> are required; rows missing either are skipped. <code>title</code> or <code>position</code> also work for role.</li>
+    <li><code>link</code> or <code>url</code> also work for source_link.</li>
+    <li>Dates accept YYYY-MM-DD or MM/DD/YYYY. Missing date_found defaults to today.</li>
+    <li>Unknown status becomes "applied" if date_applied is set, otherwise "not applied".</li>
+    <li>Extra columns are ignored, so a Simplify or spreadsheet export usually works after renaming a header or two.</li>
+  </ul>
+  <form method="post" enctype="multipart/form-data" class="row">
+    <input type="file" name="file" accept=".csv,text/csv" required style="width:auto">
+    <button class="btn-primary">Import</button>
+    <a class="btn" href="{{ url_for('opportunities') }}">Cancel</a>
+  </form>
+</div>
+<div class="card">
+  <h2>Example</h2>
+<pre class="small">company,role,source_link,status,date_found,date_applied,notes
+Stripe,Software Engineer Intern,https://stripe.com/jobs,applied,2026-09-01,2026-09-03,Referred by alum
+Vercel,Frontend Intern,https://vercel.com/careers,not applied,2026-09-10,,Found on YC WaaS</pre>
+</div>
+{% endblock %}

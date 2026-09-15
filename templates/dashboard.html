@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Job Dash{% endblock %}
+{% block content %}
+<h1>Dashboard <span class="muted small">{{ today() }}</span></h1>
+
+<h2>Opportunities ({{ total_opps }})</h2>
+<div class="stats" style="margin-bottom:16px">
+  {% for s in OPP_STATUSES %}
+  <div class="stat">
+    <div class="n"><a href="{{ url_for('opportunities', status=s) }}">{{ counts[s] }}</a></div>
+    <div class="l">{{ s }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<h2>Contacts ({{ total_contacts }})</h2>
+<div class="stats" style="margin-bottom:20px">
+  {% for s in CONTACT_STATUSES %}
+  <div class="stat">
+    <div class="n"><a href="{{ url_for('contacts', status=s) }}">{{ ccounts[s] }}</a></div>
+    <div class="l">{{ s }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Needs action today ({{ action_count }})</h2>
+    {% if action_count == 0 %}
+      <div class="empty">Nothing stale. Go find more startups.</div>
+    {% endif %}
+    <ul class="action-list">
+      {% for c in stale_contacts %}
+      <li>
+        <span class="why">Follow up</span>
+        <span class="grow">
+          <a href="{{ url_for('contact_edit', cid=c.id) }}">{{ c.name }}</a>
+          <span class="muted">· {{ c.company }}{% if c.role %}, {{ c.role }}{% endif %}</span><br>
+          <span class="small muted">Messaged {{ days_since(c.last_contact) if c.last_contact is not none else '?' }} days ago, no reply (threshold {{ STALE_OUTREACH_DAYS }}d)</span>
+        </span>
+        <form class="inline" method="post" action="{{ url_for('contact_touch', cid=c.id) }}">
+          <button class="btn-sm" title="Reset the clock: I nudged them today">Nudged today</button>
+        </form>
+        <form class="inline" method="post" action="{{ url_for('contact_status', cid=c.id) }}">
+          <input type="hidden" name="status" value="replied"><button class="btn-sm">They replied</button>
+        </form>
+      </li>
+      {% endfor %}
+
+      {% for o in stale_apps %}
+      <li>
+        <span class="why">Check in</span>
+        <span class="grow">
+          <a href="{{ url_for('opportunity_edit', oid=o.id) }}">{{ o.company }}</a>
+          <span class="muted">· {{ o.role }}</span><br>
+          <span class="small muted">Applied {{ days_since(o.date_applied) if o.date_applied else '?' }} days ago, no movement (threshold {{ STALE_APPLICATION_DAYS }}d). Ping a contact or mark rejected.</span>
+        </span>
+        <a class="btn btn-sm" href="{{ url_for('contact_new', company=o.company, opportunity_id=o.id) }}">Add contact</a>
+        <form class="inline" method="post" action="{{ url_for('opportunity_status', oid=o.id) }}">
+          <input type="hidden" name="status" value="rejected"><button class="btn-sm btn-danger">Ghosted</button>
+        </form>
+      </li>
+      {% endfor %}
+
+      {% for o in unapplied %}
+      <li>
+        <span class="why">Apply</span>
+        <span class="grow">
+          <a href="{{ url_for('opportunity_edit', oid=o.id) }}">{{ o.company }}</a>
+          <span class="muted">· {{ o.role }}</span><br>
+          <span class="small muted">Found {{ days_since(o.date_found) }} days ago and still not applied.</span>
+        </span>
+        {% if o.source_link %}<a class="btn btn-sm" href="{{ o.source_link }}" target="_blank" rel="noopener">Open posting</a>{% endif %}
+        <form class="inline" method="post" action="{{ url_for('opportunity_status', oid=o.id) }}">
+          <input type="hidden" name="status" value="applied"><button class="btn-sm">Applied</button>
+        </form>
+      </li>
+      {% endfor %}
+
+      {% for c in uncontacted %}
+      <li>
+        <span class="why">Reach out</span>
+        <span class="grow">
+          <a href="{{ url_for('contact_edit', cid=c.id) }}">{{ c.name }}</a>
+          <span class="muted">· {{ c.company }}{% if c.role %}, {{ c.role }}{% endif %} ({{ c.source }})</span>
+        </span>
+        {% if c.linkedin %}<a class="btn btn-sm" href="{{ c.linkedin }}" target="_blank" rel="noopener">LinkedIn</a>{% endif %}
+        <form class="inline" method="post" action="{{ url_for('contact_status', cid=c.id) }}">
+          <input type="hidden" name="status" value="messaged"><button class="btn-sm">Messaged</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Upcoming calls</h2>
+      {% if not calls %}<div class="empty">No calls scheduled.</div>{% endif %}
+      <ul class="action-list">
+        {% for c in calls %}
+        <li>
+          <span class="grow">
+            <a href="{{ url_for('contact_edit', cid=c.id) }}">{{ c.name }}</a>
+            <span class="muted">· {{ c.company }}</span>
+            {% if c.notes %}<br><span class="small muted">{{ c.notes }}</span>{% endif %}
+          </span>
+          <form class="inline" method="post" action="{{ url_for('contact_status', cid=c.id) }}">
+            <input type="hidden" name="status" value="replied"><button class="btn-sm">Call done</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Recently updated</h2>
+      <ul class="action-list">
+        {% for o in recent %}
+        <li>
+          <span class="grow">
+            <a href="{{ url_for('opportunity_edit', oid=o.id) }}">{{ o.company }}</a>
+            <span class="muted">· {{ o.role }}</span>
+          </span>
+          <span class="pill s-{{ o.status|replace(' ', '-') }}">{{ o.status }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

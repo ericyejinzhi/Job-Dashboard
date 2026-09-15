@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Job Dash{% endblock %}</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #1c1f24; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #2563eb; --accent-ink: #fff; --warn: #b45309; --warn-bg: #fef3c7;
+    --ok: #15803d; --ok-bg: #dcfce7; --bad: #b91c1c; --bad-bg: #fee2e2;
+    --info-bg: #dbeafe; --info: #1d4ed8; --grey-bg: #f3f4f6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { background: var(--card); border-bottom: 1px solid var(--line); }
+  header .inner { max-width: 1200px; margin: 0 auto; padding: 10px 20px; display: flex; gap: 20px; align-items: center; }
+  header .brand { font-weight: 700; font-size: 16px; color: var(--ink); }
+  header nav a { color: var(--muted); padding: 6px 10px; border-radius: 6px; }
+  header nav a.active, header nav a:hover { color: var(--ink); background: var(--grey-bg); text-decoration: none; }
+  main { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 22px; margin: 0 0 14px; }
+  h2 { font-size: 15px; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .spread { justify-content: space-between; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .stats { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .stat .n { font-size: 26px; font-weight: 700; line-height: 1.1; }
+  .stat .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .stat a { color: inherit; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: var(--grey-bg); }
+  tr:last-child td { border-bottom: 0; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .nowrap { white-space: nowrap; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .s-not-applied, .s-not-contacted { background: var(--grey-bg); color: var(--muted); }
+  .s-applied, .s-messaged { background: var(--info-bg); color: var(--info); }
+  .s-interviewing, .s-replied { background: var(--warn-bg); color: var(--warn); }
+  .s-offer, .s-call-scheduled { background: var(--ok-bg); color: var(--ok); }
+  .s-rejected { background: var(--bad-bg); color: var(--bad); }
+  button, .btn { font: inherit; padding: 7px 12px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  button:hover, .btn:hover { background: var(--grey-bg); text-decoration: none; }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-sm { padding: 3px 8px; font-size: 12px; }
+  .btn-danger { color: var(--bad); }
+  input, select, textarea { font: inherit; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); width: 100%; }
+  select.inline { width: auto; padding: 3px 6px; font-size: 12px; }
+  textarea { min-height: 90px; resize: vertical; }
+  form.inline { display: inline; }
+  .form-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .form-grid .full { grid-column: 1 / -1; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  .checks label { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-size: 13px; margin: 0; }
+  .checks input { width: auto; }
+  .flash { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; }
+  .flash.ok { background: var(--ok-bg); color: var(--ok); }
+  .flash.error { background: var(--bad-bg); color: var(--bad); }
+  .action-list { list-style: none; margin: 0; padding: 0; }
+  .action-list li { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .action-list li:last-child { border-bottom: 0; }
+  .action-list .why { color: var(--warn); font-size: 12px; font-weight: 600; }
+  .action-list .grow { flex: 1; min-width: 160px; }
+  .empty { color: var(--muted); font-style: italic; padding: 8px 0; }
+  .filters form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .filters input, .filters select { width: auto; }
+  .notes { max-width: 320px; white-space: pre-wrap; }
+  .table-wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<header>
+  <div class="inner">
+    <a class="brand" href="{{ url_for('dashboard') }}">Job Dash</a>
+    <nav class="row">
+      <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Dashboard</a>
+      <a href="{{ url_for('opportunities') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('opportunit') }}">Opportunities</a>
+      <a href="{{ url_for('contacts') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('contact') }}">Contacts</a>
+    </nav>
+    <span style="flex:1"></span>
+    <a class="btn btn-sm" href="{{ url_for('opportunity_new') }}">+ Opportunity</a>
+    <a class="btn btn-sm" href="{{ url_for('contact_new') }}">+ Contact</a>
+  </div>
+</header>
+<main>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>
