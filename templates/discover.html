@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Discover · Job Dash{% endblock %}
+{% block content %}
+<div class="row spread" style="margin-bottom:12px">
+  <h1 style="margin:0">Discover <span class="muted small">{{ total }} match{{ '' if total == 1 else 'es' }}</span></h1>
+  <form method="post" action="{{ url_for('discover_refresh') }}" class="row">
+    <span class="small muted">
+      {% if refreshing %}Refreshing in background…
+      {% elif last_refresh %}Last refresh {{ last_refresh|replace('T', ' ') }}
+      {% else %}Never refreshed{% endif %}
+    </span>
+    <button class="btn-primary" {{ 'disabled' if refreshing }}>Refresh now</button>
+  </form>
+</div>
+
+{% if last_report %}<div class="small muted" style="margin-bottom:12px">{{ last_report }}</div>{% endif %}
+
+<div class="card filters">
+  <form method="get">
+    <input type="search" name="q" value="{{ q }}" placeholder="Company or role">
+    <input type="search" name="loc" value="{{ loc }}" placeholder="Location contains (e.g. Toronto, Remote)">
+    <select name="source">
+      <option value="">All sources</option>
+      {% for s in src_list %}<option value="{{ s }}" {{ 'selected' if s == source }}>{{ s }}</option>{% endfor %}
+    </select>
+    <select name="category">
+      <option value="">All categories</option>
+      {% for c in categories %}<option value="{{ c }}" {{ 'selected' if c == category }}>{{ c }}</option>{% endfor %}
+    </select>
+    <select name="days">
+      {% for d, lbl in [(7, 'Last 7 days'), (14, 'Last 14 days'), (30, 'Last 30 days'), (90, 'Last 90 days'), (0, 'Any date')] %}
+      <option value="{{ d }}" {{ 'selected' if d == days }}>{{ lbl }}</option>
+      {% endfor %}
+    </select>
+    <select name="status">
+      {% for s in ['new', 'tracked', 'dismissed', 'expired'] %}
+      <option value="{{ s }}" {{ 'selected' if s == status }}>{{ s }} ({{ counts.get(s, 0) }})</option>
+      {% endfor %}
+    </select>
+    <button>Apply</button>
+    <a class="btn" href="{{ url_for('discover') }}">Clear</a>
+  </form>
+</div>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Posted</th><th>Company</th><th>Role</th><th>Location</th><th>Category / term</th><th>Source</th><th></th></tr></thead>
+  <tbody>
+  {% for l in rows %}
+    <tr>
+      <td class="nowrap">{{ l.date_posted or '' }}{% if l.date_posted %}<br><span class="small muted">{{ days_since(l.date_posted) }}d ago</span>{% endif %}</td>
+      <td><strong>{{ l.company }}</strong></td>
+      <td><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.role }} ↗</a></td>
+      <td class="small">{{ l.location|truncate(70) }}</td>
+      <td class="small muted">{{ l.category }}{% if l.terms %}<br>{{ l.terms }}{% endif %}</td>
+      <td><span class="src">{{ l.source }}</span></td>
+      <td class="nowrap">
+        {% if l.status == 'tracked' and l.opportunity_id %}
+          <a class="btn btn-sm" href="{{ url_for('opportunity_edit', oid=l.opportunity_id) }}">Open</a>
+        {% elif l.status == 'new' %}
+          <form class="inline" method="post" action="{{ url_for('lead_track', lid=l.id) }}"><button class="btn-sm btn-primary">Track</button></form>
+          <form class="inline" method="post" action="{{ url_for('lead_dismiss', lid=l.id) }}"><button class="btn-sm">Dismiss</button></form>
+        {% else %}
+          <form class="inline" method="post" action="{{ url_for('lead_track', lid=l.id) }}"><button class="btn-sm">Track</button></form>
+          <form class="inline" method="post" action="{{ url_for('lead_restore', lid=l.id) }}"><button class="btn-sm">Restore</button></form>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="empty">
+      {% if not last_refresh %}Nothing pulled yet. Click <strong>Refresh now</strong> above.
+      {% else %}No postings match these filters. Try a wider date range or clear the location.{% endif %}
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if total > rows|length %}<p class="small muted">Showing the newest {{ rows|length }} of {{ total }}. Narrow the filters to see the rest.</p>{% endif %}
+
+<div class="card" style="margin-top:20px">
+  <h2>Sources</h2>
+  <p class="small muted" style="margin-top:0">
+    <strong>Simplify internship list</strong>: the community-maintained Summer 2027 internship repo on GitHub (thousands of postings, updated daily).
+    <strong>Company boards</strong>: the public Greenhouse, Lever and Ashby job-board APIs that companies expose for their own careers pages.
+    Only titles containing intern / internship / co-op are kept. Nothing touches LinkedIn.
+  </p>
+  <div class="chips" style="margin-bottom:12px">
+    {% for b in boards %}
+    <span class="chip">{{ b.label }} <span class="muted">{{ b.provider }}/{{ b.slug }}</span>
+      <form class="inline" method="post" action="{{ url_for('board_delete', bid=b.id) }}"><button title="Stop watching">✕</button></form>
+    </span>
+    {% endfor %}
+  </div>
+  <form method="post" action="{{ url_for('board_add') }}" class="row">
+    <select name="provider" style="width:auto">
+      {% for p in providers %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+    </select>
+    <input name="slug" placeholder="board slug, e.g. stripe" style="width:200px" required>
+    <input name="label" placeholder="Display name (optional)" style="width:200px">
+    <button>Watch this company</button>
+  </form>
+  <p class="small muted">
+    The slug is in the company's careers URL: <code>boards.greenhouse.io/<b>slug</b></code>,
+    <code>jobs.lever.co/<b>slug</b></code>, or <code>jobs.ashbyhq.com/<b>slug</b></code>.
+    It's checked when you add it, so typos fail immediately.
+  </p>
+</div>
+{% endblock %}

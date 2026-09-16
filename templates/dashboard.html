@@ -21,6 +21,10 @@
     <div class="l">{{ s }}</div>
   </div>
   {% endfor %}
+  <div class="stat" style="border-color: var(--accent)">
+    <div class="n"><a href="{{ url_for('discover') }}">{{ new_leads }}</a></div>
+    <div class="l">discovered postings</div>
+  </div>
 </div>
 
 <div class="grid">
@@ -94,6 +98,47 @@
   </div>
 
   <div>
+    <div class="card">
+      <div class="row spread" style="margin-bottom:8px">
+        <h2 style="margin:0">Fresh postings this week</h2>
+        <a class="small" href="{{ url_for('discover') }}">see all →</a>
+      </div>
+      {% if not last_refresh %}
+        <div class="empty">No discovery run yet. <a href="{{ url_for('discover') }}">Open Discover</a> and hit Refresh.</div>
+      {% elif not fresh_leads %}
+        <div class="empty">Nothing posted in the last 7 days that you haven't already handled.</div>
+      {% endif %}
+      <ul class="action-list">
+        {% for l in fresh_leads %}
+        <li>
+          <span class="grow">
+            <a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.company }}</a>
+            <span class="muted">· {{ l.role }}</span><br>
+            <span class="small muted">{{ l.date_posted or '' }}{% if l.location %} · {{ l.location|truncate(50) }}{% endif %}</span>
+          </span>
+          <form class="inline" method="post" action="{{ url_for('lead_track', lid=l.id) }}"><button class="btn-sm">Track</button></form>
+          <form class="inline" method="post" action="{{ url_for('lead_dismiss', lid=l.id) }}"><button class="btn-sm">✕</button></form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% if board_leads %}
+      <h2 style="margin-top:14px">From watched company boards</h2>
+      <ul class="action-list">
+        {% for l in board_leads %}
+        <li>
+          <span class="grow">
+            <a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.company }}</a>
+            <span class="muted">· {{ l.role }}</span><br>
+            <span class="small muted">{{ l.date_posted or '' }}{% if l.location %} · {{ l.location|truncate(50) }}{% endif %}</span>
+          </span>
+          <form class="inline" method="post" action="{{ url_for('lead_track', lid=l.id) }}"><button class="btn-sm">Track</button></form>
+          <form class="inline" method="post" action="{{ url_for('lead_dismiss', lid=l.id) }}"><button class="btn-sm">✕</button></form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+
     <div class="card">
       <h2>Upcoming calls</h2>
       {% if not calls %}<div class="empty">No calls scheduled.</div>{% endif %}

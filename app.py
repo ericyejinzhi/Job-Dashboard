@@ -6,13 +6,31 @@ import csv
 import io
 import os
 import sqlite3
+import threading
+import urllib.error
 from datetime import date, datetime, timedelta
 
 from flask import (Flask, Response, flash, g, redirect, render_template,
                    request, url_for)
 
+import sources
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "dashboard.db")
+
+# Discovery: refresh automatically on startup if the last run is older than this.
+AUTO_REFRESH_HOURS = 6
+# Company job boards watched by default on a fresh install. Add/remove on the Discover page.
+DEFAULT_BOARDS = [
+    ("greenhouse", "stripe", "Stripe"),
+    ("greenhouse", "databricks", "Databricks"),
+    ("greenhouse", "figma", "Figma"),
+    ("ashby", "ramp", "Ramp"),
+    ("ashby", "notion", "Notion"),
+    ("ashby", "linear", "Linear"),
+    ("ashby", "openai", "OpenAI"),
+    ("lever", "palantir", "Palantir"),
+]
 
 OPP_STATUSES = ["not applied", "applied", "interviewing", "rejected", "offer"]
 CONTACT_STATUSES = ["not contacted", "messaged", "replied", "call scheduled"]
@@ -60,6 +78,33 @@ CREATE TABLE IF NOT EXISTS contact_opportunities (
     opportunity_id INTEGER NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
     PRIMARY KEY (contact_id, opportunity_id)
 );
+CREATE TABLE IF NOT EXISTS leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    company TEXT NOT NULL,
+    role TEXT NOT NULL,
+    url TEXT NOT NULL UNIQUE,
+    location TEXT DEFAULT '',
+    category TEXT DEFAULT '',
+    terms TEXT DEFAULT '',
+    date_posted TEXT,
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'new',
+    opportunity_id INTEGER REFERENCES opportunities(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS leads_status_date ON leads(status, date_posted DESC);
+CREATE TABLE IF NOT EXISTS boards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    label TEXT NOT NULL,
+    UNIQUE (provider, slug)
+);
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
 """
 
 
@@ -84,6 +129,8 @@ def init_db():
     db.executescript(SCHEMA)
     if fresh:
         seed(db)
+    if db.execute("SELECT COUNT(*) FROM boards").fetchone()[0] == 0:
+        db.executemany("INSERT OR IGNORE INTO boards (provider, slug, label) VALUES (?,?,?)", DEFAULT_BOARDS)
     db.commit()
     db.close()
 
@@ -274,6 +321,17 @@ def dashboard():
         "SELECT * FROM opportunities ORDER BY updated_at DESC LIMIT 5"
     ).fetchall()
 
+    new_leads = db.execute("SELECT COUNT(*) FROM leads WHERE status = 'new'").fetchone()[0]
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
+    fresh_leads = db.execute(
+        "SELECT * FROM leads WHERE status = 'new' AND date_posted >= ?"
+        " ORDER BY date_posted DESC, first_seen DESC LIMIT 8", (week_ago,)
+    ).fetchall()
+    board_leads = db.execute(
+        "SELECT * FROM leads WHERE status = 'new' AND source != 'simplify'"
+        " ORDER BY date_posted DESC, first_seen DESC LIMIT 8"
+    ).fetchall()
+
     return render_template(
         "dashboard.html",
         counts=counts, ccounts=ccounts,
@@ -281,6 +339,8 @@ def dashboard():
         uncontacted=uncontacted, calls=calls, recent=recent,
         total_opps=sum(counts.values()), total_contacts=sum(ccounts.values()),
         action_count=len(stale_contacts) + len(stale_apps) + len(unapplied) + len(uncontacted),
+        new_leads=new_leads, fresh_leads=fresh_leads, board_leads=board_leads,
+        last_refresh=get_meta("last_refresh"),
         STALE_OUTREACH_DAYS=STALE_OUTREACH_DAYS, STALE_APPLICATION_DAYS=STALE_APPLICATION_DAYS,
         STALE_UNAPPLIED_DAYS=STALE_UNAPPLIED_DAYS,
     )
@@ -576,8 +636,268 @@ def contact_delete(cid):
 
 
 # --------------------------------------------------------------------------
+# Discovery: pull internship postings from public sources into `leads`
+# --------------------------------------------------------------------------
+
+_refresh_lock = threading.Lock()
+_refresh_state = {"running": False}
+
+
+def get_meta(key, db=None):
+    db = db or get_db()
+    row = db.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else None
+
+
+def set_meta(db, key, value):
+    db.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+               (key, value))
+
+
+def upsert_leads(db, leads):
+    """Insert unseen leads, bump last_seen on known ones. Returns number of new rows."""
+    now = now_iso()
+    new = 0
+    for lead in leads:
+        if not lead["url"] or not lead["company"] or not lead["role"]:
+            continue
+        cur = db.execute(
+            "INSERT OR IGNORE INTO leads (source, company, role, url, location, category, terms, date_posted,"
+            " first_seen, last_seen) VALUES (:source, :company, :role, :url, :location, :category, :terms,"
+            " :date_posted, :first_seen, :last_seen)",
+            dict(lead, first_seen=now, last_seen=now),
+        )
+        if cur.rowcount:
+            new += 1
+        else:
+            db.execute("UPDATE leads SET last_seen = ? WHERE url = ?", (now, lead["url"]))
+    return new
+
+
+def run_discovery(db):
+    """Fetch every source. Returns a report dict; never raises for a single bad source."""
+    report = {"new": 0, "sources": [], "errors": []}
+    succeeded = []  # (source, company-or-None) keys whose fetch worked this run
+
+    def run(name, key, fn):
+        try:
+            leads = fn()
+            n = upsert_leads(db, leads)
+            report["new"] += n
+            report["sources"].append((name, len(leads), n))
+            succeeded.append(key)
+        except (urllib.error.URLError, TimeoutError, ValueError, RuntimeError, OSError) as e:
+            report["errors"].append(f"{name}: {e}")
+
+    run("Simplify internship list", ("simplify", None), sources.fetch_simplify)
+    for b in db.execute("SELECT provider, slug, label FROM boards ORDER BY label").fetchall():
+        fetcher = sources.BOARD_FETCHERS.get(b["provider"])
+        if fetcher:
+            run(f"{b['label']} ({b['provider']})", (b["provider"], b["label"]),
+                lambda b=b, f=fetcher: f(b["slug"], b["label"]))
+
+    # A posting that a *working* source no longer lists is probably closed; hide it from "new".
+    # Sources that failed this run are left alone so an outage doesn't expire everything.
+    stale = (datetime.now() - timedelta(days=3)).isoformat(timespec="seconds")
+    for source, company in succeeded:
+        if company is None:
+            db.execute("UPDATE leads SET status = 'expired' WHERE status = 'new' AND source = ? AND last_seen < ?",
+                       (source, stale))
+        else:
+            db.execute("UPDATE leads SET status = 'expired' WHERE status = 'new' AND source = ? AND company = ?"
+                       " AND last_seen < ?", (source, company, stale))
+
+    set_meta(db, "last_refresh", now_iso())
+    set_meta(db, "last_report", "; ".join(f"{n}: {t} seen, {new} new" for n, t, new in report["sources"])
+             + (" | errors: " + "; ".join(report["errors"]) if report["errors"] else ""))
+    db.commit()
+    return report
+
+
+def refresh_in_background():
+    """Used on startup so the app is usable immediately while sources load."""
+    if not _refresh_lock.acquire(blocking=False):
+        return
+    _refresh_state["running"] = True
+    try:
+        db = sqlite3.connect(DB_PATH)
+        db.row_factory = sqlite3.Row
+        try:
+            report = run_discovery(db)
+            print(f"[discovery] {report['new']} new leads; errors: {report['errors'] or 'none'}")
+        finally:
+            db.close()
+    finally:
+        _refresh_state["running"] = False
+        _refresh_lock.release()
+
+
+def maybe_auto_refresh():
+    db = sqlite3.connect(DB_PATH)
+    try:
+        last = get_meta("last_refresh", db)
+    finally:
+        db.close()
+    if last:
+        try:
+            age = datetime.now() - datetime.fromisoformat(last)
+            if age < timedelta(hours=AUTO_REFRESH_HOURS):
+                return
+        except ValueError:
+            pass
+    threading.Thread(target=refresh_in_background, daemon=True).start()
+
+
+LEAD_DAYS_DEFAULT = 14
+
+
+@app.route("/discover")
+def discover():
+    db = get_db()
+    q = request.args.get("q", "").strip()
+    loc = request.args.get("loc", "").strip()
+    source = request.args.get("source", "")
+    category = request.args.get("category", "")
+    status = request.args.get("status", "new")
+    try:
+        days = int(request.args.get("days", LEAD_DAYS_DEFAULT))
+    except ValueError:
+        days = LEAD_DAYS_DEFAULT
+
+    where, params = [], []
+    if status in ("new", "tracked", "dismissed", "expired"):
+        where.append("status = ?")
+        params.append(status)
+    if q:
+        where.append("(company LIKE ? OR role LIKE ?)")
+        params += [f"%{q}%"] * 2
+    if loc:
+        where.append("location LIKE ?")
+        params.append(f"%{loc}%")
+    if source:
+        where.append("source = ?")
+        params.append(source)
+    if category:
+        where.append("category = ?")
+        params.append(category)
+    if days > 0:
+        where.append("(date_posted >= ? OR date_posted IS NULL)")
+        params.append((date.today() - timedelta(days=days)).isoformat())
+    sql = "SELECT * FROM leads"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    total = db.execute(f"SELECT COUNT(*) FROM ({sql})", params).fetchone()[0]
+    rows = db.execute(sql + " ORDER BY date_posted DESC, first_seen DESC, company LIMIT 300", params).fetchall()
+
+    categories = [r[0] for r in db.execute(
+        "SELECT DISTINCT category FROM leads WHERE category != '' ORDER BY category")]
+    src_list = [r[0] for r in db.execute("SELECT DISTINCT source FROM leads ORDER BY source")]
+    boards = db.execute("SELECT * FROM boards ORDER BY label").fetchall()
+    counts = {r["status"]: r["n"] for r in db.execute("SELECT status, COUNT(*) n FROM leads GROUP BY status")}
+
+    return render_template(
+        "discover.html", rows=rows, total=total, q=q, loc=loc, source=source, category=category,
+        status=status, days=days, categories=categories, src_list=src_list, boards=boards, counts=counts,
+        last_refresh=get_meta("last_refresh"), last_report=get_meta("last_report"),
+        refreshing=_refresh_state["running"], providers=sorted(sources.PROVIDERS),
+    )
+
+
+@app.route("/discover/refresh", methods=["POST"])
+def discover_refresh():
+    if not _refresh_lock.acquire(blocking=False):
+        flash("A refresh is already running. Reload in a few seconds.", "error")
+        return redirect(url_for("discover"))
+    try:
+        _refresh_state["running"] = True
+        report = run_discovery(get_db())
+    finally:
+        _refresh_state["running"] = False
+        _refresh_lock.release()
+    msg = f"Found {report['new']} new posting(s) across {len(report['sources'])} source(s)."
+    if report["errors"]:
+        flash(msg + " Some sources failed: " + "; ".join(report["errors"]), "error")
+    else:
+        flash(msg, "ok")
+    return redirect(url_for("discover"))
+
+
+@app.route("/leads/<int:lid>/track", methods=["POST"])
+def lead_track(lid):
+    """Promote a discovered posting into the opportunity tracker."""
+    db = get_db()
+    lead = db.execute("SELECT * FROM leads WHERE id = ?", (lid,)).fetchone()
+    if lead is None:
+        return "Not found", 404
+    if lead["opportunity_id"]:
+        flash("Already tracked.", "ok")
+        return redirect(request.referrer or url_for("discover"))
+    note_bits = [f"Found via {lead['source']}."]
+    if lead["location"]:
+        note_bits.append(f"Location: {lead['location']}.")
+    if lead["terms"]:
+        note_bits.append(f"Terms: {lead['terms']}.")
+    cur = db.execute(
+        "INSERT INTO opportunities (company, role, source_link, status, date_found, date_applied, notes, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?)",
+        (lead["company"], lead["role"], lead["url"], "not applied", date.today().isoformat(), None,
+         " ".join(note_bits), now_iso()),
+    )
+    db.execute("UPDATE leads SET status = 'tracked', opportunity_id = ? WHERE id = ?", (cur.lastrowid, lid))
+    db.commit()
+    flash(f"Tracking {lead['company']}: {lead['role']}.", "ok")
+    return redirect(request.referrer or url_for("discover"))
+
+
+@app.route("/leads/<int:lid>/dismiss", methods=["POST"])
+def lead_dismiss(lid):
+    db = get_db()
+    db.execute("UPDATE leads SET status = 'dismissed' WHERE id = ? AND status != 'tracked'", (lid,))
+    db.commit()
+    return redirect(request.referrer or url_for("discover"))
+
+
+@app.route("/leads/<int:lid>/restore", methods=["POST"])
+def lead_restore(lid):
+    db = get_db()
+    db.execute("UPDATE leads SET status = 'new' WHERE id = ? AND status IN ('dismissed', 'expired')", (lid,))
+    db.commit()
+    return redirect(request.referrer or url_for("discover"))
+
+
+@app.route("/boards", methods=["POST"])
+def board_add():
+    provider = request.form.get("provider", "").strip().lower()
+    slug = request.form.get("slug", "").strip().lower()
+    label = request.form.get("label", "").strip() or slug.title()
+    if provider not in sources.PROVIDERS or not slug:
+        flash("Pick a provider and enter the company's board slug.", "error")
+        return redirect(url_for("discover"))
+    ok, msg = sources.check_board(provider, slug)
+    if not ok:
+        flash(msg, "error")
+        return redirect(url_for("discover"))
+    db = get_db()
+    db.execute("INSERT OR IGNORE INTO boards (provider, slug, label) VALUES (?,?,?)", (provider, slug, label))
+    db.commit()
+    flash(f"Watching {label} on {provider}. {msg} Hit Refresh to pull them in.", "ok")
+    return redirect(url_for("discover"))
+
+
+@app.route("/boards/<int:bid>/delete", methods=["POST"])
+def board_delete(bid):
+    db = get_db()
+    db.execute("DELETE FROM boards WHERE id = ?", (bid,))
+    db.commit()
+    return redirect(url_for("discover"))
+
+
+# --------------------------------------------------------------------------
 
 if __name__ == "__main__":
     init_db()
     print(f"Database: {DB_PATH}")
+    # With the debug reloader the module runs twice; only the child serves requests.
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+        maybe_auto_refresh()
     app.run(host="127.0.0.1", port=5000, debug=True)
